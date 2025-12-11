@@ -1,246 +1,163 @@
+# 📘 GRAND GUIDE : MARKET TREND & EXTERNAL FACTORS ANALYSIS  
+*Version approfondie avec XGBoost*
+
+---
+
+## 1. Le Contexte Métier et la Mission
+
+### Le Problème (Business Case)
+
+Les marchés évoluent rapidement sous l’effet de facteurs macroéconomiques, technologiques et politiques.  
+Analyser les tendances devient essentiel pour anticiper les risques et orienter les décisions stratégiques.
+
+**Objectif :**  
+- Étudier l’évolution du marché  
+- Comprendre les facteurs externes  
+- Construire un modèle prédictif basé sur XGBoost
+
+---
+
+## 2. Le Code Python (Laboratoire)
+
+Ce script illustre comment charger, nettoyer, analyser et **modéliser** les tendances du marché.
+
+```python
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+from xgboost import XGBRegressor
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
-from sklearn.impute import SimpleImputer
-from sklearn.metrics import (accuracy_score, classification_report,
-                             confusion_matrix, roc_auc_score)
-from datetime import datetime
-import warnings, os
-warnings.filterwarnings('ignore')
+from sklearn.metrics import mean_absolute_error, r2_score
 
-# ========== Génération ou chargement des données ==========
-try:
-    import kagglehub
-    path = kagglehub.dataset_download("kundanbedmutha/market-trend-and-external-factors-dataset")
-    csv_files = [f for f in os.listdir(path) if f.endswith(".csv")]
-    if not csv_files:
-        raise FileNotFoundError("Aucun CSV trouvé dans le dataset Kaggle.")
-    df = pd.read_csv(os.path.join(path, csv_files[0]))
-    source = f"Dataset Kaggle : {csv_files[0]}"
-except Exception as e:
-    # Données synthétiques de secours
-    np.random.seed(42)
-    n_samples = 1000
-    dates = pd.date_range("2020-01-01", periods=n_samples, freq="D")
-    market_base = 1000
-    market_trend = np.cumsum(np.random.randn(n_samples) * 2 + 0.05)
-    df = pd.DataFrame({
-        "Date": dates,
-        "Market_Index": market_base + market_trend,
-        "GDP_Growth": np.random.uniform(1.5, 4.5, n_samples),
-        "Inflation_Rate": np.random.uniform(1.0, 5.0, n_samples),
-        "Interest_Rate": np.random.uniform(0.5, 3.5, n_samples),
-        "Unemployment_Rate": np.random.uniform(3.0, 8.0, n_samples),
-        "Consumer_Confidence": np.random.uniform(80, 120, n_samples),
-        "Oil_Price": np.random.uniform(40, 100, n_samples),
-        "Gold_Price": np.random.uniform(1500, 2000, n_samples),
-        "USD_Exchange_Rate": np.random.uniform(0.85, 1.15, n_samples),
-        "Market_Volatility": np.random.uniform(10, 40, n_samples),
-        "Trade_Volume": np.random.uniform(1e6, 1e7, n_samples),
-    })
-    df["Price_Change"] = df["Market_Index"].pct_change() * 100
-    df["Market_Trend"] = (df["Price_Change"] > 0).astype(int)
-    df.loc[0, "Market_Trend"] = 1
-    df.loc[0, "Price_Change"] = 0
-    source = f"Données synthétiques (erreur Kaggle : {e})"
+# --- PHASE 1 : IMPORTATION DES DONNÉES ---
+df = pd.DataFrame({
+    "annee": np.arange(2015, 2026),
+    "croissance_PIB": [3.2, 3.1, 3.0, 2.8, 2.5, 1.9, 1.2, 0.5, -1.0, 2.0, 2.7],
+    "inflation":       [1.5, 1.7, 1.8, 2.0, 2.3, 3.0, 5.2, 6.7, 4.5, 3.1, 2.4],
+    "croissance_secteur": [4.1, 4.3, 4.0, 3.9, 3.7, 3.0, 2.0, 1.2, -0.8, 1.5, 2.6]
+})
 
-# ========== Data wrangling ==========
-df_dirty = df.copy()
-numeric_cols = df.select_dtypes(include=[np.number]).columns
-for col in numeric_cols[:6]:
-    mask = np.random.rand(len(df_dirty)) < 0.04
-    df_dirty.loc[mask, col] = np.nan
+# --- PHASE 2 : NETTOYAGE ---
+df_clean = df.fillna(method="ffill")
 
-target_col = "Market_Trend" if "Market_Trend" in df_dirty.columns else numeric_cols[-1]
-problem_type = "classification" if target_col == "Market_Trend" else "regression"
+# --- PHASE 3 : EXPLORATION ---
+print("Statistiques descriptives :")
+print(df_clean.describe())
 
-date_cols = df_dirty.select_dtypes(include=["datetime64", "object"]).columns
-exclude_cols = list(date_cols) + [target_col]
-if "Price_Change" in df_dirty.columns and target_col != "Price_Change":
-    exclude_cols.append("Price_Change")
+plt.plot(df_clean["annee"], df_clean["croissance_secteur"])
+plt.title("Évolution du secteur")
+plt.grid(True)
+plt.show()
 
-X = df_dirty.drop(columns=exclude_cols, errors="ignore")
-y = df_dirty[target_col]
+# --- PHASE 4 : SPLIT DES DONNÉES ---
+X = df_clean[["croissance_PIB", "inflation"]]
+y = df_clean["croissance_secteur"]
 
-imputer = SimpleImputer(strategy="mean")
-X_imputed = imputer.fit_transform(X)
-X_clean = pd.DataFrame(X_imputed, columns=X.columns)
-
-# ========== Split & scaling ==========
 X_train, X_test, y_train, y_test = train_test_split(
-    X_clean, y, test_size=0.2, random_state=42,
-    stratify=y if problem_type == "classification" else None
+    X, y, test_size=0.2, random_state=42
 )
 
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test)
+# --- PHASE 5 : INTELLIGENCE ARTIFICIELLE (XGBOOST) ---
+model = XGBRegressor(
+    n_estimators=300,
+    learning_rate=0.05,
+    max_depth=4,
+    random_state=42
+)
 
-# ========== Modélisation (XGBoost ou fallback) ==========
-try:
-    import xgboost as xgb
-    if problem_type == "classification":
-        model = xgb.XGBClassifier(
-            n_estimators=100,
-            max_depth=6,
-            learning_rate=0.1,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-            eval_metric="logloss",
-        )
-    else:
-        model = xgb.XGBRegressor(
-            n_estimators=100,
-            max_depth=6,
-            learning_rate=0.1,
-            subsample=0.8,
-            colsample_bytree=0.8,
-            random_state=42,
-        )
-    model_name = "XGBoost"
-except Exception:
-    from sklearn.ensemble import GradientBoostingClassifier, GradientBoostingRegressor
-    if problem_type == "classification":
-        model = GradientBoostingClassifier(
-            n_estimators=100,
-            learning_rate=0.1,
-            max_depth=3,
-            random_state=42,
-        )
-    else:
-        model = GradientBoostingRegressor(
-            n_estimators=100,
-            learning_rate=0.1,
-            max_depth=3,
-            random_state=42,
-        )
-    model_name = "GradientBoosting (fallback)"
+model.fit(X_train, y_train)
+y_pred = model.predict(X_test)
 
-model.fit(X_train_scaled, y_train)
+# --- PHASE 6 : ÉVALUATION ---
+mae = mean_absolute_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
 
-# ========== Évaluation ==========
-if problem_type == "classification":
-    y_pred = model.predict(X_test_scaled)
-    if hasattr(model, "predict_proba"):
-        y_proba = model.predict_proba(X_test_scaled)[:, 1]
-        roc_auc = roc_auc_score(y_test, y_proba)
-    else:
-        y_proba = None
-        roc_auc = None
-    acc = accuracy_score(y_test, y_pred)
-    cls_report = classification_report(y_test, y_pred)
-    cm = confusion_matrix(y_test, y_pred)
-else:
-    y_pred = model.predict(X_test_scaled)
-    # (tu peux ajouter RMSE/R2 si tu passes en régression)
+print(f"MAE : {mae:.3f}")
+print(f"R² Score : {r2:.3f}")
 
-# ========== Graphiques simples ==========
-sns.set_theme(style="whitegrid")
-# Distribution de la cible
-plt.figure()
-if problem_type == "classification":
-    y.value_counts().plot(kind="bar", color=["#FF6B6B", "#4ECDC4"])
-    plt.xlabel(target_col)
-    plt.ylabel("Fréquence")
-    plt.title("Distribution de la variable cible")
-else:
-    plt.hist(y, bins=40, color="#4ECDC4", edgecolor="black")
-    plt.xlabel(target_col)
-    plt.ylabel("Fréquence")
-    plt.title("Distribution de la variable cible")
-plt.tight_layout()
-plt.savefig("target_distribution.png", dpi=150)
-plt.close()
+# Importance des features
+plt.bar(X.columns, model.feature_importances_)
+plt.title("Importance des variables pour XGBoost")
+plt.show()
+```
 
-# Feature importance (si disponible)
-try:
-    importances = model.feature_importances_
-    fi = pd.DataFrame({"Feature": X_clean.columns, "Importance": importances}).sort_values(
-        "Importance", ascending=False
-    )
-    plt.figure(figsize=(8, 5))
-    sns.barplot(data=fi.head(10), x="Importance", y="Feature", palette="viridis")
-    plt.title(f"Top 10 features – {model_name}")
-    plt.tight_layout()
-    plt.savefig("feature_importance.png", dpi=150)
-    plt.close()
-except Exception:
-    fi = None
+---
 
-# Confusion matrix plot
-if problem_type == "classification":
-    plt.figure()
-    sns.heatmap(cm, annot=True, fmt="d", cmap="Blues")
-    plt.xlabel("Prédit")
-    plt.ylabel("Réel")
-    plt.title("Matrice de confusion")
-    plt.tight_layout()
-    plt.savefig("confusion_matrix.png", dpi=150)
-    plt.close()
+## 3. Analyse Approfondie : Nettoyage (Data Wrangling)
 
-# ========== Génération du compte rendu Markdown ==========
-rapport = ""
-rapport += "# Analyse des tendances de marché et facteurs externes\n\n"
-rapport += f"_Rapport généré automatiquement le {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}_\n\n"
+### Le Problème
+Les données économiques et sectorielles contiennent souvent :
+- des valeurs manquantes  
+- des fluctuations irrégulières  
+- des anomalies dues à des crises
 
-rapport += "## PHASE 1 – Contexte métier\n\n"
-rapport += "- Domaine : finance / marché.\n"
-rapport += "- Objectif : prédire la tendance du marché (hausse/baisse) à partir de facteurs externes.\n\n"
+### Stratégie adoptée
+L’approche `ffill` conserve la cohérence temporelle, indispensable pour une analyse économique réaliste.
 
-rapport += "## PHASE 2 – Données\n\n"
-rapport += f"- Source : {source}\n"
-rapport += f"- Observations : **{df.shape[0]}**\n"
-rapport += f"- Variables : **{df.shape[1]}**\n"
-rapport += "- Variable cible : `Market_Trend` (1 = hausse, 0 = baisse).\n\n"
+---
 
-rapport += "### Aperçu des données\n\n```
-rapport += df.head().to_string()
-rapport += "\n```\n\n"
+## 4. Analyse Exploratoire
 
-rapport += "## PHASE 3 – Préparation des données\n\n"
-rapport += "- Gestion de valeurs manquantes par imputation (moyenne).\n"
-rapport += "- Exclusion des colonnes de date et dérivées (`Date`, `Price_Change`).\n"
-rapport += "- Standardisation des variables explicatives.\n\n"
+Cette étape dévoile les tendances importantes :
+- Baisse progressive de la croissance du PIB  
+- Inflation élevée → pression sur la demande  
+- Forte corrélation entre PIB et croissance du secteur
 
-rapport += "## PHASE 4 – Modélisation\n\n"
-rapport += f"- Modèle utilisé : **{model_name}**.\n"
-rapport += "- Paramètres principaux : nombre d'arbres = 100, profondeur max ≈ 6.\n\n"
+`.describe()` aide à détecter :
+- la volatilité  
+- les années extrêmes  
+- les cycles du marché  
 
-rapport += "## PHASE 5 – Résultats\n\n"
-if problem_type == "classification":
-    rapport += f"- Accuracy sur le jeu de test : **{acc*100:.2f}%**.\n"
-    if roc_auc is not None:
-        rapport += f"- ROC-AUC : **{roc_auc:.4f}**.\n\n"
-    rapport += "### Rapport de classification\n\n```
-    rapport += cls_report
-    rapport += "\n```\n\n"
-    rapport += "### Matrice de confusion\n\n```
-    rapport += pd.DataFrame(cm, index=["Réel 0", "Réel 1"], columns=["Prédit 0", "Prédit 1"]).to_string()
-    rapport += "\n```\n\n"
-else:
-    rapport += "- Mode régression non détaillé ici.\n\n"
+---
 
-if fi is not None:
-    rapport += "### Principales variables explicatives\n\n```
-    rapport += fi.head(10).to_string(index=False)
-    rapport += "\n```\n\n"
+## 5. Méthodologie : Split & Prédiction
 
-rapport += "## PHASE 6 – Graphiques générés\n\n"
-rapport += "- `target_distribution.png` : distribution de la cible.\n"
-if problem_type == "classification":
-    rapport += "- `confusion_matrix.png` : matrice de confusion.\n"
-if fi is not None:
-    rapport += "- `feature_importance.png` : importance des variables.\n\n"
+Comme dans les projets ML :
+- On sépare les données pour **généraliser** (80% / 20%).  
+- On utilise des variables explicatives macroéconomiques pour prédire la croissance du secteur.
 
-rapport += "## Conclusion\n\n"
-rapport += "- Le modèle fournit une première base pour l’aide à la décision sur les tendances de marché.\n"
-rapport += "- Des améliorations sont possibles (tuning des hyperparamètres, nouvelles features, etc.).\n"
+---
 
-with open("rapport_marche_xgboost.md", "w", encoding="utf-8") as f:
-    f.write(rapport)
+## 6. FOCUS THÉORIQUE : L’Algorithme XGBoost 🚀
 
-print("✅ Rapport généré : rapport_marche_xgboost.md")
+Pourquoi XGBoost ?
+
+### A. Gradient Boosting Optimisé  
+XGBoost construit des arbres **séquentiellement**, chaque arbre corrige les erreurs du précédent.
+
+### B. Avantages face aux modèles économiques classiques  
+- Gère les non-linéarités  
+- Résistant au surapprentissage  
+- Capable d’extraire les tendances cachées  
+- Très performant même avec peu de données  
+
+### C. Feature Importance  
+Le modèle révèle quelles variables affectent le plus la tendance sectorielle :
+- inflation  
+- croissance du PIB  
+
+Cela imite un raisonnement d’économiste, mais avec une précision algorithmique.
+
+---
+
+## 7. Analyse des Résultats
+
+### MAE (Mean Absolute Error)
+Mesure l’erreur moyenne du modèle → plus c’est faible, meilleur est le modèle.
+
+### R² Score
+Mesure la capacité explicative du modèle :
+- 1.0 = prédiction parfaite  
+- 0 = pas mieux qu’une moyenne  
+
+### Importance des variables
+L’Inflation peut dominer l’explication si le secteur est sensible au pouvoir d’achat.  
+Le PIB explique souvent la demande globale.
+
+---
+
+## Conclusion du Projet
+
+L’ajout de **XGBoost** montre comment l’intelligence artificielle peut renforcer l’analyse économique.  
+Cette approche permet d’anticiper les variations du marché et de comprendre quels facteurs externes influencent réellement le secteur.
+
